@@ -1,5 +1,5 @@
 # app.py
-# Flask app: invoices + flights folders + QR + replace + delete + ZIP QR only
+# Flask app: invoices + flights folders + QR + replace + delete + ZIP QR
 
 from flask import (
     Flask, request, send_from_directory, url_for,
@@ -31,6 +31,7 @@ LANG = {
         'delete': 'Удалить',
         'open_pdf': 'Открыть PDF',
         'download_zip': 'Скачать все QR-коды (ZIP)',
+        'download_flight_zip': 'Скачать ZIP QR рейса',
         'confirm': 'Вы уверены?'
     },
     'en': {
@@ -44,6 +45,7 @@ LANG = {
         'delete': 'Delete',
         'open_pdf': 'Open PDF',
         'download_zip': 'Download all QR codes (ZIP)',
+        'download_flight_zip': 'Download flight QR ZIP',
         'confirm': 'Are you sure?'
     },
     'uz': {
@@ -57,6 +59,7 @@ LANG = {
         'delete': "O‘chirish",
         'open_pdf': 'PDF ochish',
         'download_zip': 'Barcha QR-kodlarni yuklash (ZIP)',
+        'download_flight_zip': 'Reys QR ZIP yuklash',
         'confirm': 'Ishonchingiz komilmi?'
     }
 }
@@ -83,7 +86,7 @@ HTML = """
 <style>
 body{font-family:Arial;background:#f4f6f8}
 .container{max-width:1200px;margin:40px auto;background:#fff;padding:30px;border-radius:10px}
-button{padding:6px 12px;border:none;border-radius:6px;color:#fff;cursor:pointer}
+button{padding:6px 12px;border:none;border-radius:6px;color:#fff;cursor:pointer;margin:2px}
 .blue{background:#2563eb}
 .green{background:#16a34a}
 .red{background:#dc2626}
@@ -131,10 +134,12 @@ th{background:#f1f5f9}
 <button class="blue">{{ t.upload }}</button>
 </form>
 
-<!-- Скачать все QR-коды -->
-<a href="/download-zip">
-<button class="green">{{ t.download_zip }}</button>
-</a>
+<!-- Скачать ZIP -->
+<a href="/download-zip"><button class="green">{{ t.download_zip }}</button></a>
+
+{% if current_flight %}
+<a href="/download-flight-qr/{{ current_flight }}"><button class="green">{{ t.download_flight_zip }}</button></a>
+{% endif %}
 
 <table>
 <tr>
@@ -272,7 +277,7 @@ def delete_invoice(invoice_id):
 
     return redirect(url_for('index', lang=lang))
 
-# ---------- ZIP только с QR ----------
+# ---------- ZIP всех QR ----------
 @app.route('/download-zip')
 def download_zip():
     memory = io.BytesIO()
@@ -285,6 +290,30 @@ def download_zip():
         memory,
         as_attachment=True,
         download_name='qr_codes.zip',
+        mimetype='application/zip'
+    )
+
+# ---------- ZIP QR выбранного рейса ----------
+@app.route('/download-flight-qr/<flight_no>')
+def download_flight_qr(flight_no):
+    data = load_data()
+    invoices = [i for i in data if i['flight_no'] == flight_no]
+
+    if not invoices:
+        return "Рейс не найден", 404
+
+    memory = io.BytesIO()
+    with zipfile.ZipFile(memory, 'w', zipfile.ZIP_DEFLATED) as z:
+        for i in invoices:
+            qr_file = os.path.join(QR_FOLDER, f"{i['id']}.png")
+            if os.path.exists(qr_file):
+                z.write(qr_file, arcname=f"{i['id']}.png")
+
+    memory.seek(0)
+    return send_file(
+        memory,
+        as_attachment=True,
+        download_name=f"{flight_no}_qr.zip",
         mimetype='application/zip'
     )
 
