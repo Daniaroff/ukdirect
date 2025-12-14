@@ -1,5 +1,5 @@
 # app.py
-# Flask app: invoices + flights folders + QR + replace + delete + ZIP рейса
+# Flask app: invoices + flights folders + QR + replace + delete + ZIP QR only
 
 from flask import (
     Flask, request, send_from_directory, url_for,
@@ -30,7 +30,7 @@ LANG = {
         'replace': 'Заменить PDF',
         'delete': 'Удалить',
         'open_pdf': 'Открыть PDF',
-        'zip_flight': 'Скачать ZIP рейса',
+        'download_zip': 'Скачать все QR-коды (ZIP)',
         'confirm': 'Вы уверены?'
     },
     'en': {
@@ -43,7 +43,7 @@ LANG = {
         'replace': 'Replace PDF',
         'delete': 'Delete',
         'open_pdf': 'Open PDF',
-        'zip_flight': 'Download flight ZIP',
+        'download_zip': 'Download all QR codes (ZIP)',
         'confirm': 'Are you sure?'
     },
     'uz': {
@@ -56,7 +56,7 @@ LANG = {
         'replace': 'PDF almashtirish',
         'delete': "O‘chirish",
         'open_pdf': 'PDF ochish',
-        'zip_flight': 'Reys ZIP yuklash',
+        'download_zip': 'Barcha QR-kodlarni yuklash (ZIP)',
         'confirm': 'Ishonchingiz komilmi?'
     }
 }
@@ -131,11 +131,10 @@ th{background:#f1f5f9}
 <button class="blue">{{ t.upload }}</button>
 </form>
 
-{% if current_flight %}
-<a href="/download-flight/{{ current_flight }}">
-<button class="green">{{ t.zip_flight }}</button>
+<!-- Скачать все QR-коды -->
+<a href="/download-zip">
+<button class="green">{{ t.download_zip }}</button>
 </a>
-{% endif %}
 
 <table>
 <tr>
@@ -273,31 +272,19 @@ def delete_invoice(invoice_id):
 
     return redirect(url_for('index', lang=lang))
 
-# ---------- ZIP рейса с PDF + QR ----------
-@app.route('/download-flight/<flight_no>')
-def download_flight_zip(flight_no):
-    flight_dir = os.path.join(UPLOAD_FOLDER, flight_no)
-    if not os.path.isdir(flight_dir):
-        return "Flight not found", 404
-
-    data = load_data()
-    invoices = [i for i in data if i['flight_no'] == flight_no]
-
+# ---------- ZIP только с QR ----------
+@app.route('/download-zip')
+def download_zip():
     memory = io.BytesIO()
     with zipfile.ZipFile(memory, 'w', zipfile.ZIP_DEFLATED) as z:
-        for i in invoices:
-            pdf_file = os.path.join(flight_dir, f"{i['id']}.pdf")
-            if os.path.exists(pdf_file):
-                z.write(pdf_file, arcname=f"{flight_no}/{i['id']}.pdf")
-            qr_file = os.path.join(QR_FOLDER, f"{i['id']}.png")
-            if os.path.exists(qr_file):
-                z.write(qr_file, arcname=f"{flight_no}/{i['id']}.png")
-
+        for f in os.listdir(QR_FOLDER):
+            if f.lower().endswith('.png'):
+                z.write(os.path.join(QR_FOLDER, f), f)
     memory.seek(0)
     return send_file(
         memory,
         as_attachment=True,
-        download_name=f"{flight_no}.zip",
+        download_name='qr_codes.zip',
         mimetype='application/zip'
     )
 
