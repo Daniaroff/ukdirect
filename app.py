@@ -1,5 +1,5 @@
 # app.py
-# Flask app: invoices + flights folders + QR + replace + delete + ZIP QR
+# Flask app: invoices + flights folders + QR + replace + delete + ZIP QR (invoice number in ZIP)
 
 from flask import (
     Flask, request, send_from_directory, url_for,
@@ -7,8 +7,10 @@ from flask import (
 )
 import os, uuid, io, zipfile, json
 import qrcode
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 app = Flask(__name__)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_FOLDER = os.path.join(BASE_DIR, 'invoices')
@@ -76,6 +78,9 @@ def save_data(data):
     with open(DATA_FILE, 'w', encoding='utf-8') as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
 
+def safe_name(text):
+    return text.replace(' ', '_').replace('/', '_')
+
 # ---------- HTML ----------
 HTML = """
 <!doctype html>
@@ -113,7 +118,6 @@ th{background:#f1f5f9}
 
 <h1>{{ t.title }}</h1>
 
-<!-- Фильтр по рейсу -->
 <form method="get">
 <label>{{ t.filter }}:</label>
 <select name="flight" onchange="this.form.submit()">
@@ -125,7 +129,6 @@ th{background:#f1f5f9}
 <input type="hidden" name="lang" value="{{ lang }}">
 </form>
 
-<!-- Загрузка инвойса -->
 <form method="post" enctype="multipart/form-data">
 <input type="hidden" name="lang" value="{{ lang }}">
 <input type="text" name="invoice_no" placeholder="{{ t.invoice_no }}" required>
@@ -134,7 +137,6 @@ th{background:#f1f5f9}
 <button class="blue">{{ t.upload }}</button>
 </form>
 
-<!-- Скачать ZIP -->
 <a href="/download-zip"><button class="green">{{ t.download_zip }}</button></a>
 
 {% if current_flight %}
@@ -190,7 +192,10 @@ def index():
     if request.method == 'POST':
         invoice_no = request.form['invoice_no']
         flight_no = request.form['flight_no']
-        file = request.files['invoice']
+        file = request.files.get('invoice')
+
+        if not file or not file.filename.lower().endswith('.pdf'):
+            return redirect(url_for('index', lang=lang))
 
         uid = str(uuid.uuid4())[:8]
 
@@ -277,21 +282,23 @@ def delete_invoice(invoice_id):
 
     return redirect(url_for('index', lang=lang))
 
-# ---------- ZIP всех QR ----------
+# ---------- ZIP всех QR (invoice number in filename) ----------
 @app.route('/download-zip')
 def download_zip():
+    data = load_data()
     memory = io.BytesIO()
+
     with zipfile.ZipFile(memory, 'w', zipfile.ZIP_DEFLATED) as z:
-        for f in os.listdir(QR_FOLDER):
-            if f.lower().endswith('.png'):
-                z.write(os.path.join(QR_FOLDER, f), f)
+        for i in data:
+            qr_path = os.path.join(QR_FOLDER, f"{i['id']}.png")
+            if os.path.exists(qr_path):
+                name = f"{safe_name(i['invoice_no'])}_{i['id']}.png"
+                z.write(qr_path, arcname=name)
+
     memory.seek(0)
-    return send_file(
-        memory,
-        as_attachment=True,
-        download_name='qr_codes.zip',
-        mimetype='application/zip'
-    )
+    return send_file(memory, as_attachment=True,
+                     download_name='qr_codes.zip',
+                     mimetype='application/zip')
 
 # ---------- ZIP QR выбранного рейса ----------
 @app.route('/download-flight-qr/<flight_no>')
@@ -300,22 +307,20 @@ def download_flight_qr(flight_no):
     invoices = [i for i in data if i['flight_no'] == flight_no]
 
     if not invoices:
-        return "Рейс не найден", 404
+        return "Flight not found", 404
 
     memory = io.BytesIO()
     with zipfile.ZipFile(memory, 'w', zipfile.ZIP_DEFLATED) as z:
         for i in invoices:
-            qr_file = os.path.join(QR_FOLDER, f"{i['id']}.png")
-            if os.path.exists(qr_file):
-                z.write(qr_file, arcname=f"{i['id']}.png")
+            qr_path = os.path.join(QR_FOLDER, f"{i['id']}.png")
+            if os.path.exists(qr_path):
+                name = f"{safe_name(i['invoice_no'])}_{i['id']}.png"
+                z.write(qr_path, arcname=name)
 
     memory.seek(0)
-    return send_file(
-        memory,
-        as_attachment=True,
-        download_name=f"{flight_no}_qr.zip",
-        mimetype='application/zip'
-    )
+    return send_file(memory, as_attachment=True,
+                     download_name=f"{flight_no}_qr.zip",
+                     mimetype='application/zip')
 
 if __name__ == '__main__':
     app.run(debug=False)
